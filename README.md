@@ -1,4 +1,4 @@
-# snowify-plugins
+# Snowify Plugins
 
 Official plugins for [Snowify](https://github.com/nyakuoff/Snowify).
 
