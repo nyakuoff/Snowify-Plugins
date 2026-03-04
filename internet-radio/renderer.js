@@ -353,7 +353,7 @@
       'toast.radioStationAdded': 'Добавлена: {{name}}',
       'toast.radioStreamEnded': 'Поток завершён — попробуйте другую станцию',
       'toast.radioStreamLost': 'Сигнал потерян — попробуйте другую станцию',
-      'toast.radioStreamStalled': 'Поток остановлен — попробуйте другую станцию',
+      'toast.radioStreamStalled': 'Поток остан��влен — попробуйте другую станцию',
     },
     hi: {
       'nav.radio': 'रेडियो',
@@ -740,7 +740,7 @@
         try {
           const stations = await apiByTag(tag);
           _stationsCache = stations;
-          let html = '<button class="radio-back-btn" id="radio-back-btn" aria-label="Back">&larr; ' + t('radio.title') + '</button>';
+          let html = '';
           if (stations.length) {
             html += buildScrollSection(tag, stations);
             html += buildTrendingSection(t('radio.allTagStations', { tag }), stations);
@@ -749,7 +749,6 @@
           }
           contentEl.innerHTML = html;
           attachListeners(contentEl);
-          $('#radio-back-btn')?.addEventListener('click', () => render());
         } catch (err) {
           contentEl.innerHTML = '<div class="empty-state"><p>' + t('radio.couldNotLoad') + '</p></div>';
         }
@@ -881,9 +880,13 @@
 
   // ═══════ Main App Integration ═══════
   function pauseMainApp() {
+    // Directly pause all app audio elements (covers crossfade engine too)
+    document.querySelectorAll('audio').forEach(a => {
+      if (a !== _audioEl && !a.paused) a.pause();
+    });
+    // Sync the app's play button UI
     const playBtn = $('#btn-play-pause');
     if (!playBtn) return;
-    // If pause icon is visible (not hidden), app is currently playing → click to pause
     const pauseIcon = playBtn.querySelector('.icon-pause');
     if (pauseIcon && !pauseIcon.classList.contains('hidden')) {
       playBtn.click();
@@ -969,6 +972,10 @@
     if (timeTotal) { timeTotal.classList.remove('radio-live-badge'); timeTotal.textContent = '0:00'; }
     const maxTimeTotal = $('#max-np-time-total');
     if (maxTimeTotal) { maxTimeTotal.classList.remove('radio-live-badge'); maxTimeTotal.textContent = '0:00'; }
+    const timeCurrent = $('#time-current');
+    if (timeCurrent) timeCurrent.textContent = '0:00';
+    const maxTimeCurrent = $('#max-np-time-current');
+    if (maxTimeCurrent) maxTimeCurrent.textContent = '0:00';
 
     $('#progress-bar')?.classList.remove('radio-buffering');
     $('#max-np-progress-bar')?.classList.remove('radio-buffering');
@@ -987,6 +994,13 @@
     if (window.snowify && window.snowify.clearPresence) {
       window.snowify.clearPresence().catch(() => {});
     }
+
+    // Reset MediaSession so app can reclaim it
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.setActionHandler('play', null);
+      navigator.mediaSession.setActionHandler('pause', null);
+      navigator.mediaSession.metadata = null;
+    }
   }
 
   // ═══════ Playback ═══════
@@ -999,16 +1013,21 @@
 
     const gen = ++_generation;
 
+    // Stop current radio stream if switching stations
+    if (_active && _audioEl) _audioEl.pause();
+
     // Pause main app's playback
     pauseMainApp();
+    // Ensure body class is clean so observer doesn't trigger on stale state
+    document.body.classList.remove('audio-playing');
 
     _active = true;
     _station = station;
     _lastTimeSec = -1;
+    clearTimeout(_stallTimer);
 
     showRadioNP(station);
     syncPlayButton(true);
-    apiClick(station.stationuuid);
 
     try {
       showToast(t('toast.radioTuningIn', { name: station.name }));
@@ -1041,11 +1060,12 @@
 
   function cleanup() {
     if (!_active) return;
+    _active = false;
+    _station = null;
+    clearTimeout(_stallTimer);
     _audioEl.pause();
     _audioEl.removeAttribute('src');
     _audioEl.load();
-    _active = false;
-    _station = null;
     syncPlayButton(false);
     cleanupNP();
   }
@@ -1061,8 +1081,42 @@
     }
   }
 
+  // ═══════ Like Animations ═══════
+  const BROKEN_HEART_SVG = '<svg width="20" height="20" viewBox="0 0 24 24" fill="var(--accent)"><path d="M2 8.5C2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09V21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5z"/><path d="M12 5.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35V5.09z" transform="translate(1.5, 2) rotate(8, 12, 12)"/></svg>';
+
+  function spawnHeartParticles(originEl) {
+    const rect = originEl.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    for (let i = 0; i < 7; i++) {
+      const heart = document.createElement('div');
+      heart.className = 'heart-particle';
+      heart.textContent = '\u2764';
+      const angle = (Math.PI * 2 * i) / 7 + (Math.random() - 0.5) * 0.6;
+      const dist = 20 + Math.random() * 25;
+      heart.style.left = cx + 'px';
+      heart.style.top = cy + 'px';
+      heart.style.setProperty('--dx', Math.cos(angle) * dist + 'px');
+      heart.style.setProperty('--dy', (Math.sin(angle) * dist - 15) + 'px');
+      heart.style.setProperty('--s', 0.6 + Math.random() * 0.5);
+      document.body.appendChild(heart);
+      heart.addEventListener('animationend', () => heart.remove());
+    }
+  }
+
+  function spawnBrokenHeart(originEl) {
+    const rect = originEl.getBoundingClientRect();
+    const el = document.createElement('div');
+    el.className = 'broken-heart';
+    el.innerHTML = BROKEN_HEART_SVG;
+    el.style.left = rect.left + rect.width / 2 + 'px';
+    el.style.top = rect.top + rect.height / 2 + 'px';
+    document.body.appendChild(el);
+    el.addEventListener('animationend', () => el.remove());
+  }
+
   // ═══════ Favorites ═══════
-  function toggleFavorite(station) {
+  function toggleFavorite(station, originEl) {
     if (!station) return;
     const idx = _state.favoriteStations.findIndex(s => s.stationuuid === station.stationuuid);
     if (idx >= 0) {
@@ -1081,6 +1135,10 @@
     const fav = idx < 0;
     $('#np-like')?.classList.toggle('liked', fav);
     $('#max-np-like')?.classList.toggle('liked', fav);
+    if (originEl) {
+      if (fav) spawnHeartParticles(originEl);
+      else spawnBrokenHeart(originEl);
+    }
     saveState();
     if (_radioView && _radioView.classList.contains('active')) render();
     return fav;
@@ -1132,9 +1190,16 @@
 
   function interceptLikeButtons() {
     const guard = () => _active && !!_station;
-    const handler = () => toggleFavorite(_station);
-    interceptButton('#np-like', guard, handler);
-    interceptButton('#max-np-like', guard, handler);
+    ['#np-like', '#max-np-like'].forEach(sel => {
+      const btn = $(sel);
+      if (!btn) return;
+      btn.addEventListener('click', (e) => {
+        if (!guard()) return;
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        toggleFavorite(_station, btn);
+      }, true);
+    });
   }
 
   function observeVolume() {
@@ -1147,26 +1212,16 @@
   }
 
   function observeAppPlayback() {
-    // Detect when app starts playing music → cleanup radio
-    // If pause icon appears but our audio is paused AND we didn't just pause it,
-    // the app took over playback
-    const playBtn = $('#btn-play-pause');
-    if (!playBtn) return;
-    const observer = new MutationObserver(() => {
+    // Detect when app starts playing music → stop radio
+    // The app toggles body.audio-playing in updatePlayButton() on every play state change,
+    // including programmatic ones (keyboard, MediaSession, sidebar).
+    // This is more reliable than watching SVG icon classes.
+    new MutationObserver(() => {
       if (!_active) return;
-      const pauseIcon = playBtn.querySelector('.icon-pause');
-      // Only trigger if pause icon is showing (app is playing) AND our audio is paused
-      // AND we still have an active station (not mid-cleanup)
-      if (pauseIcon && !pauseIcon.classList.contains('hidden') && _audioEl.paused && _station) {
-        _active = false;
-        _station = null;
-        cleanupNP();
+      if (document.body.classList.contains('audio-playing')) {
+        cleanup();
       }
-    });
-    const icons = playBtn.querySelectorAll('svg');
-    icons.forEach(icon => {
-      observer.observe(icon, { attributes: true, attributeFilter: ['class'] });
-    });
+    }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
   }
 
   function initInterceptors() {
