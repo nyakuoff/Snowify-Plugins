@@ -574,6 +574,15 @@
       if (tc) tc.textContent = str;
       const mtc = $('#max-np-time-current');
       if (mtc) mtc.textContent = str;
+      // Reinforce LIVE badge (app's timeupdate may overwrite it)
+      const tt = $('#time-total');
+      if (tt && !tt.classList.contains('radio-live-badge')) {
+        tt.textContent = LIVE_BADGE; tt.classList.add('radio-live-badge');
+      }
+      const mtt = $('#max-np-time-total');
+      if (mtt && !mtt.classList.contains('radio-live-badge')) {
+        mtt.textContent = LIVE_BADGE; mtt.classList.add('radio-live-badge');
+      }
     });
   }
 
