@@ -474,9 +474,7 @@
 
   // ═══════ API Layer (direct fetch — no IPC) ═══════
   async function radioFetch(path) {
-    const res = await fetch(API + path, {
-      headers: { 'User-Agent': 'Snowify/1.0' }
-    });
+    const res = await fetch(API + path);
     if (!res.ok) throw new Error(String(res.status));
     return res.json();
   }
@@ -897,13 +895,9 @@
 
   // ═══════ Main App Integration ═══════
   function pauseMainApp() {
-    // Directly pause all app audio elements (covers crossfade engine too)
     document.querySelectorAll('audio').forEach(a => {
       if (a !== _audioEl && !a.paused) a.pause();
     });
-    // Sync the app's play button UI (don't use .click() — our interceptor would capture it)
-    updatePlayIcon('#btn-play-pause', false);
-    updatePlayIcon('#max-np-play', false);
   }
 
   function getAppVolume() {
@@ -976,8 +970,6 @@
       const maxTimeCurrent = $('#max-np-time-current');
       if (maxTimeCurrent) maxTimeCurrent.textContent = '0:00';
     });
-
-    updateMediaSession(station);
   }
 
   function cleanupNP() {
@@ -1055,23 +1047,21 @@
       _audioEl.load();
       _audioEl.volume = getAppVolume();
 
+      let playTimer;
       const playPromise = _audioEl.play();
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Timeout')), PLAY_TIMEOUT)
-      );
+      const timeoutPromise = new Promise((_, reject) => {
+        playTimer = setTimeout(() => reject(new Error('Timeout')), PLAY_TIMEOUT);
+      });
       await Promise.race([playPromise, timeoutPromise]);
+      clearTimeout(playTimer);
 
       if (gen !== _generation) return;
-      syncPlayButton(true);
       updateDiscordPresence(station);
       updateMediaSession(station);
+      apiClick(station.stationuuid);
     } catch (err) {
       if (gen !== _generation) return;
       if (err && err.name === 'AbortError') return;
-      // On timeout or error, abort the stale stream
-      _audioEl.pause();
-      _audioEl.removeAttribute('src');
-      _audioEl.load();
       console.error('[Radio Plugin] play error:', err);
       showToast(t('toast.radioUnavailable'));
       cleanup();
@@ -1244,20 +1234,26 @@
     }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
   }
 
-  function interceptTimeClicks() {
-    // Block time-total click (toggles remaining time) during radio — it overwrites LIVE badge
-    const guard = () => _active;
-    const noop = () => {};
-    interceptButton('#time-total', guard, noop);
-    interceptButton('#max-np-time-total', guard, noop);
+  function guardAppAudio() {
+    // Intercept play events on app's audio elements to prevent dual audio.
+    // Catches spacebar, MediaSession, thumbbar, and any programmatic play()
+    // that bypasses our button click interceptors.
+    ['#audio-player', '#audio-player-b'].forEach(sel => {
+      const el = $(sel);
+      if (!el) return;
+      el.addEventListener('play', () => {
+        if (!_active || _ignoreAppPlayback) return;
+        el.pause();
+      });
+    });
   }
 
   function initInterceptors() {
     interceptPlayButtons();
     interceptLikeButtons();
-    interceptTimeClicks();
     observeVolume();
     observeAppPlayback();
+    guardAppAudio();
   }
 
   // ═══════ Init ═══════

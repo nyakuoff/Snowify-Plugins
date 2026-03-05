@@ -190,10 +190,11 @@ body.radio-plugin-active .max-np-progress-handle {
 body.radio-plugin-active .progress-bar,
 body.radio-plugin-active .max-np-progress-bar {
   cursor: default;
+  pointer-events: none;
 }
-body.radio-plugin-active .progress-bar:hover,
-body.radio-plugin-active .max-np-progress-bar:hover {
-  height: 4px;
+body.radio-plugin-active #time-total,
+body.radio-plugin-active #max-np-time-total {
+  pointer-events: none;
 }
 
 /* ── Buffering Indicator ── */
