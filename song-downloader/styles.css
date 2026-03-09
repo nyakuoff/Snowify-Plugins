@@ -1,0 +1,19 @@
+.sdl-btn {
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+.sdl-btn:hover:not(:disabled) {
+  opacity: 1;
+}
+.sdl-btn:disabled {
+  cursor: default;
+}
+.sdl-btn.sdl-loading {
+  opacity: 0.5;
+}
+@keyframes sdl-spin {
+  to { transform: rotate(360deg); }
+}
+.sdl-spinner {
+  animation: sdl-spin 0.8s linear infinite;
+}
